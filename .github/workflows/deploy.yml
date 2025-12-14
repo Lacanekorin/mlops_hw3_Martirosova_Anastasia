@@ -164,28 +164,41 @@ jobs:
 
     steps:
       - name: Simulate Cloud Deployment (Blue-Green)
+        env:
+          MODEL_VERSION: ${{ secrets.MODEL_VERSION }}
+          CLOUD_TOKEN: ${{ secrets.CLOUD_TOKEN }}
         run: |
           echo "=========================================="
           echo "🚀 Starting deployment to cloud..."
           echo "=========================================="
           echo ""
+          echo "🔐 GitHub Secrets loaded:"
+          echo "  ✓ CLOUD_TOKEN: ${CLOUD_TOKEN:0:8}... (hidden)"
+          echo "  ✓ MODEL_VERSION: $MODEL_VERSION"
+          echo ""
           echo "📦 Deployment Configuration:"
-          echo "  - Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v1.0.0"
+          echo "  - Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$MODEL_VERSION"
           echo "  - Service: ml-model-service"
           echo "  - Strategy: blue-green"
           echo "  - Target: Production"
+          echo "  - Commit: ${{ github.sha }}"
           echo ""
           echo "🔄 Simulating API call to cloud provider..."
           echo "POST /api/deploy"
-          echo "  {\"image\": \"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v1.0.0\","
+          echo "Authorization: Bearer ${CLOUD_TOKEN:0:12}..."
+          echo "  {\"image\": \"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$MODEL_VERSION\","
           echo "   \"service\": \"ml-model-service\","
-          echo "   \"strategy\": \"blue-green\"}"
+          echo "   \"strategy\": \"blue-green\","
+          echo "   \"version\": \"$MODEL_VERSION\"}"
           echo ""
           sleep 2
           echo "✅ Deployment request accepted"
           echo "📝 Deployment ID: deploy-${{ github.sha }}"
+          echo "🏷️  Deployed version: $MODEL_VERSION"
 
       - name: Simulate Deployment Verification
+        env:
+          MODEL_VERSION: ${{ secrets.MODEL_VERSION }}
         run: |
           echo ""
           echo "=========================================="
@@ -198,39 +211,48 @@ jobs:
           echo "✓ Blue service (v1.0.0) - Running on port 8081"
           echo "✓ Green service (v1.1.0) - Running on port 8082"
           echo "✓ Load balancer - Active"
+          echo "✓ Target version: $MODEL_VERSION"
           echo ""
 
           echo "🏥 Health check simulation:"
           echo "GET /health"
-          echo "Response: {\"status\": \"ok\", \"version\": \"v1.0.0\", \"model_loaded\": true}"
+          echo "Response: {\"status\": \"ok\", \"version\": \"$MODEL_VERSION\", \"model_loaded\": true}"
           echo ""
 
           echo "🧪 Prediction test:"
           echo "POST /predict"
           echo "Request: {\"features\": [1.0, 2.0, 3.0]}"
-          echo "Response: {\"prediction\": 341.65, \"model_version\": \"v1.0.0\"}"
+          echo "Response: {\"prediction\": 341.65, \"model_version\": \"$MODEL_VERSION\"}"
           echo ""
 
           echo "✅ Deployment verified successfully!"
-          echo "🎯 Active version: v1.0.0 (Blue)"
-          echo "🔄 Standby version: v1.1.0 (Green)"
+          echo "🎯 Active version: $MODEL_VERSION"
+          echo "🔄 Rollback available to previous version"
 
       - name: Deployment Summary
+        env:
+          MODEL_VERSION: ${{ secrets.MODEL_VERSION }}
         run: |
           echo ""
           echo "=========================================="
           echo "📊 DEPLOYMENT SUMMARY"
           echo "=========================================="
           echo "Status: ✅ SUCCESS"
+          echo "Version: $MODEL_VERSION"
           echo "Commit: ${{ github.sha }}"
           echo "Time: $(date)"
           echo "Deployed by: ${{ github.actor }}"
+          echo ""
+          echo "🔐 Secrets used:"
+          echo "  • CLOUD_TOKEN: ✓ Configured"
+          echo "  • MODEL_VERSION: ✓ $MODEL_VERSION"
           echo ""
           echo "🔗 Service endpoints:"
           echo "  • Health: https://ml-service.cloud/health"
           echo "  • Predict: https://ml-service.cloud/predict"
           echo "  • Docs: https://ml-service.cloud/docs"
           echo ""
-          echo "💡 To switch to Green version:"
-          echo "   Run: ./switch-version.sh green"
+          echo "💡 Blue-Green Strategy:"
+          echo "   Current: $MODEL_VERSION"
+          echo "   Switch: ./switch-version.sh green"
           echo "=========================================="

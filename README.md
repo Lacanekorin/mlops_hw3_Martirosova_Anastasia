@@ -95,6 +95,19 @@ curl -X POST http://localhost/predict -H "Content-Type: application/json" -d '{"
 
 ## 4. CI/CD Pipeline
 
+### Настройка GitHub Secrets
+
+Перед запуском workflow настройте секреты:
+
+1. Откройте репозиторий на GitHub
+2. Settings → Secrets and variables → Actions
+3. New repository secret
+4. Добавьте:
+   - `CLOUD_TOKEN` - токен облачного провайдера (например: `demo-token-12345`)
+   - `MODEL_VERSION` - версия для деплоя (например: `v1.0.0`)
+
+### Workflow
+
 GitHub Actions автоматически выполняет:
 
 1. **build-and-test**
@@ -108,6 +121,7 @@ GitHub Actions автоматически выполняет:
    - Тестирование контейнеров
 
 3. **deploy** (симуляция)
+   - Загрузка secrets (CLOUD_TOKEN, MODEL_VERSION)
    - Имитация деплоя в облако
    - Проверка health и predict endpoints
    - Отображение deployment summary
