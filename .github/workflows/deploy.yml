@@ -9,7 +9,6 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
   build-and-test:
@@ -94,6 +93,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Set lowercase image name
+        id: image
+        run: |
+          echo "name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -115,7 +119,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}
           tags: |
             type=sha,prefix=${{ matrix.version }}-
             type=raw,value=${{ matrix.version }}
@@ -134,13 +138,13 @@ jobs:
       - name: Test Docker image
         run: |
           # Pull the image
-          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.version }}
+          docker pull ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ matrix.version }}
 
           # Run container
           docker run -d --name test-container \
             -p 8080:8080 \
             -e MODEL_VERSION=${{ matrix.version }} \
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.version }}
+            ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:${{ matrix.version }}
 
           # Wait for container to start
           sleep 15
@@ -163,6 +167,11 @@ jobs:
     if: github.ref == 'refs/heads/main'
 
     steps:
+      - name: Set lowercase image name
+        id: image
+        run: |
+          echo "name=$(echo ${{ github.repository }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+
       - name: Simulate Cloud Deployment (Blue-Green)
         env:
           MODEL_VERSION: ${{ secrets.MODEL_VERSION }}
@@ -177,7 +186,7 @@ jobs:
           echo "  ✓ MODEL_VERSION: $MODEL_VERSION"
           echo ""
           echo "📦 Deployment Configuration:"
-          echo "  - Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$MODEL_VERSION"
+          echo "  - Image: ${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:$MODEL_VERSION"
           echo "  - Service: ml-model-service"
           echo "  - Strategy: blue-green"
           echo "  - Target: Production"
@@ -186,7 +195,7 @@ jobs:
           echo "🔄 Simulating API call to cloud provider..."
           echo "POST /api/deploy"
           echo "Authorization: Bearer ${CLOUD_TOKEN:0:12}..."
-          echo "  {\"image\": \"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$MODEL_VERSION\","
+          echo "  {\"image\": \"${{ env.REGISTRY }}/${{ steps.image.outputs.name }}:$MODEL_VERSION\","
           echo "   \"service\": \"ml-model-service\","
           echo "   \"strategy\": \"blue-green\","
           echo "   \"version\": \"$MODEL_VERSION\"}"
