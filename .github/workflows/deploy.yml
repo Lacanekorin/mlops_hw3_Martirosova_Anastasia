@@ -1,0 +1,236 @@
+name: Model Deployment
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Train models
+        run: |
+          python train_model.py
+          ls -lh models/
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-models
+          path: models/*.pkl
+
+      - name: Validate models
+        run: |
+          python -c "
+          import joblib
+          import os
+          assert os.path.exists('models/model_v1.0.0.pkl'), 'Model v1.0.0 not found'
+          assert os.path.exists('models/model_v1.1.0.pkl'), 'Model v1.1.0 not found'
+          model = joblib.load('models/model_v1.0.0.pkl')
+          assert hasattr(model, 'predict'), 'Model lacks predict method'
+          print('✓ Models validated successfully')
+          "
+
+      - name: Test application
+        run: |
+          # Start the FastAPI app in background
+          MODEL_VERSION=v1.0.0 uvicorn main:app --host 0.0.0.0 --port 8080 &
+
+          # Wait for app to start
+          sleep 10
+
+          # Test health endpoint
+          curl -f http://localhost:8080/health || exit 1
+
+          # Test predict endpoint
+          curl -f -X POST http://localhost:8080/predict \
+            -H "Content-Type: application/json" \
+            -d '{"features": [1.0, 2.0, 3.0]}' || exit 1
+
+          echo "Application tests passed!"
+
+  build-docker:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    strategy:
+      matrix:
+        version: [v1.0.0, v1.1.0]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Train models
+        run: |
+          pip install scikit-learn joblib numpy
+          python train_model.py
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=${{ matrix.version }}-
+            type=raw,value=${{ matrix.version }}
+            type=raw,value=${{ matrix.version }}-latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            MODEL_VERSION=${{ matrix.version }}
+
+      - name: Test Docker image
+        run: |
+          # Pull the image
+          docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.version }}
+
+          # Run container
+          docker run -d --name test-container \
+            -p 8080:8080 \
+            -e MODEL_VERSION=${{ matrix.version }} \
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ matrix.version }}
+
+          # Wait for container to start
+          sleep 15
+
+          # Test health endpoint
+          curl -f http://localhost:8080/health
+
+          # Test predict endpoint
+          curl -f -X POST http://localhost:8080/predict \
+            -H "Content-Type: application/json" \
+            -d '{"features": [1.0, 2.0, 3.0]}'
+
+          # Stop container
+          docker stop test-container
+          docker rm test-container
+
+  deploy:
+    needs: build-docker
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - name: Simulate Cloud Deployment (Blue-Green)
+        run: |
+          echo "=========================================="
+          echo "🚀 Starting deployment to cloud..."
+          echo "=========================================="
+          echo ""
+          echo "📦 Deployment Configuration:"
+          echo "  - Image: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v1.0.0"
+          echo "  - Service: ml-model-service"
+          echo "  - Strategy: blue-green"
+          echo "  - Target: Production"
+          echo ""
+          echo "🔄 Simulating API call to cloud provider..."
+          echo "POST /api/deploy"
+          echo "  {\"image\": \"${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v1.0.0\","
+          echo "   \"service\": \"ml-model-service\","
+          echo "   \"strategy\": \"blue-green\"}"
+          echo ""
+          sleep 2
+          echo "✅ Deployment request accepted"
+          echo "📝 Deployment ID: deploy-${{ github.sha }}"
+
+      - name: Simulate Deployment Verification
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "🔍 Verifying deployment..."
+          echo "=========================================="
+          echo ""
+          echo "⏳ Waiting for services to start..."
+          sleep 3
+
+          echo "✓ Blue service (v1.0.0) - Running on port 8081"
+          echo "✓ Green service (v1.1.0) - Running on port 8082"
+          echo "✓ Load balancer - Active"
+          echo ""
+
+          echo "🏥 Health check simulation:"
+          echo "GET /health"
+          echo "Response: {\"status\": \"ok\", \"version\": \"v1.0.0\", \"model_loaded\": true}"
+          echo ""
+
+          echo "🧪 Prediction test:"
+          echo "POST /predict"
+          echo "Request: {\"features\": [1.0, 2.0, 3.0]}"
+          echo "Response: {\"prediction\": 341.65, \"model_version\": \"v1.0.0\"}"
+          echo ""
+
+          echo "✅ Deployment verified successfully!"
+          echo "🎯 Active version: v1.0.0 (Blue)"
+          echo "🔄 Standby version: v1.1.0 (Green)"
+
+      - name: Deployment Summary
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "📊 DEPLOYMENT SUMMARY"
+          echo "=========================================="
+          echo "Status: ✅ SUCCESS"
+          echo "Commit: ${{ github.sha }}"
+          echo "Time: $(date)"
+          echo "Deployed by: ${{ github.actor }}"
+          echo ""
+          echo "🔗 Service endpoints:"
+          echo "  • Health: https://ml-service.cloud/health"
+          echo "  • Predict: https://ml-service.cloud/predict"
+          echo "  • Docs: https://ml-service.cloud/docs"
+          echo ""
+          echo "💡 To switch to Green version:"
+          echo "   Run: ./switch-version.sh green"
+          echo "=========================================="
